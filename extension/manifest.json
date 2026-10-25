@@ -1,0 +1,12 @@
+{
+  "display_name": "TT Agent 站点限流",
+  "loading_order": 100,
+  "requires": [],
+  "optional": [],
+  "js": "site-index.js",
+  "css": "style.css",
+  "author": "TT Agent Site Limiter contributors",
+  "homePage": "https://github.com/luicarstar/tauritavern-agent-site-limiter",
+  "version": "0.2.0",
+  "description": "按上游站点自动限制 Agent RPM 与请求并发，保留原模型选择。"
+}
