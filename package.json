@@ -1,0 +1,18 @@
+{
+  "name": "tauritavern-agent-site-limiter",
+  "version": "0.2.0",
+  "private": true,
+  "type": "module",
+  "description": "Per-origin RPM and concurrency limits for TauriTavern Agents",
+  "license": "MIT",
+  "repository": { "type": "git", "url": "https://github.com/luicarstar/tauritavern-agent-site-limiter.git" },
+  "homepage": "https://github.com/luicarstar/tauritavern-agent-site-limiter",
+  "bugs": { "url": "https://github.com/luicarstar/tauritavern-agent-site-limiter/issues" },
+  "engines": { "node": ">=22" },
+  "scripts": {
+    "test": "node --experimental-vm-modules --test tests/*.test.mjs",
+    "start": "node service/server.mjs",
+    "package": "pwsh -NoProfile -File scripts/Package.ps1"
+  },
+  "devDependencies": { "jsdom": "26.1.0" }
+}
