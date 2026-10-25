@@ -1,0 +1,69 @@
+{
+  "name": "@leaf233/dsh-llm-rate-limiter",
+  "version": "0.3.0",
+  "description": "Per-model LLM call rate limiter for DeepSeek Harness with queue support and a live status panel",
+  "type": "module",
+  "main": "lib/index.js",
+  "exports": {
+    ".": "./lib/index.js",
+    "./client": "./lib/client.js"
+  },
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    },
+    "client": {
+      "inject": [
+        "@deepseek-ai/dsh-client-connection",
+        "@deepseek-ai/dsh-client-locale",
+        "@deepseek-ai/dsh-client-ui-settings",
+        "@deepseek-ai/dsh-client-ui-plugin-manager",
+        "@deepseek-ai/dsh-api-remotes"
+      ],
+      "platform": "web"
+    }
+  },
+  "scripts": {
+    "build": "echo 'no build needed'",
+    "test": "node test-strategies.mjs && node test-status-rpc.mjs && node test-client-bundle.mjs && node test-host-integration.mjs && node test-status-route.mjs && node test-config-schema.mjs",
+    "verify:live": "node tools/verify-live-route.mjs"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Leafyezi233/dsh-llm-rate-limiter.git"
+  },
+  "bugs": {
+    "url": "https://github.com/Leafyezi233/dsh-llm-rate-limiter/issues"
+  },
+  "homepage": "https://github.com/Leafyezi233/dsh-llm-rate-limiter#readme",
+  "keywords": [
+    "dsh",
+    "deepseek-harness",
+    "rate-limiter",
+    "llm",
+    "token-bucket",
+    "sliding-window",
+    "cordis-plugin"
+  ],
+  "license": "MIT",
+  "peerDependencies": {
+    "@deepseek-ai/cordis": ">=4.0.0",
+    "@deepseek-ai/dsh-settings": ">=0.1.7-rc.1",
+    "@deepseek-ai/schemastery": ">=3.18.4"
+  },
+  "dependencies": {
+    "@deepseek-ai/schemastery": "^3.18.4"
+  },
+  "devDependencies": {
+    "@deepseek-ai/dsh-settings": "^0.1.7-rc.1"
+  },
+  "files": [
+    "lib/",
+    "cordis.patch.yml",
+    "package.json",
+    "README.md",
+    "README.zh.md",
+    "CHANGELOG.md",
+    "LICENSE"
+  ]
+}

@@ -63,3 +63,17 @@
 源码测试运行 `npm ci --ignore-scripts`、`npm test`。21 项测试覆盖排队、取消、流式并发、滚动 RPM、站点合并与隔离、原生协议转发、自动路由、面板和旧版迁移。测试仅使用本机模拟上游，不产生真实模型费用。
 
 更多信息见 [工作原理与兼容边界](docs/ARCHITECTURE.md)、[开发与打包](docs/DEVELOPMENT.md) 和 [版本记录](CHANGELOG.md)。
+
+## DSH 配套插件（dsh-llm-rate-limiter/）
+
+[dsh-llm-rate-limiter/](dsh-llm-rate-limiter/) 是 DeepSeek Harness（DSH）侧的配套限流插件，基于 [@leaf233/dsh-llm-rate-limiter](https://github.com/Leafyezi233/dsh-llm-rate-limiter) 0.3.0 修补增强：
+
+- **修复 Electron 桌面端「添加模型」无反应**：`window.prompt()` 在 Electron 渲染进程不被支持，改为内联输入行
+- **0.2.x 宿主兼容**：卡片不再被 `whileServed` 门控隐藏（describe mirror 不回送命名空间时整体消失的问题）
+- **配置链路加固**：状态通道新增 `config` / `mutate` 端点，卡片配置读写直连宿主 settings 服务，绕过不可靠的客户端 mirror；挂载时显示真实配置而非默认值
+- **模型目录下拉**：「添加模型」从宿主模型目录（`remote.session.modelCatalog`）拉取可选列表，失败自动退回手填
+- **覆盖范围**：主 Agent 与子 Agent 的所有 LLM 调用都经过 `llm/stream` 瀑布流唯一入口，全部计数限流
+
+安装（DSH 侧）：把 `dsh-llm-rate-limiter/` 目录装入 DSH profile 的 `node_modules`（或在 profile 目录 `pnpm add <本地路径>`），配置写在 profile 的 `cordis.patch.yml`（`llm-rate-limiter` 条目：`strategy` / `defaults` / `models` / `onThrottled`）。
+
+与本项目的关系：TT（TauriTavern）侧用本仓库主体限流，DSH 侧用这个插件限流——两边各自独立计数，同一站点同时使用时注意额度是两份。

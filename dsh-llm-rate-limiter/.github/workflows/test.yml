@@ -1,0 +1,61 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        # Node 18 is EOL; 20 is maintenance. 22 is the floor we test broadly,
+        # 24 is what the plugin is actually developed and run on.
+        node-version: [20, 22, 24]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          # Matches the lockfile's lockfileVersion 9.
+          version: 9
+
+      - name: Setup Node.js ${{ matrix.node-version }}
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node-version }}
+          cache: 'pnpm'
+
+      - name: Install dependencies
+        run: pnpm install
+
+      - name: Run unit tests
+        run: node test-strategies.mjs
+
+      - name: Run status channel tests
+        run: node test-status-rpc.mjs
+
+      - name: Run client bundle tests
+        run: node test-client-bundle.mjs
+
+      - name: Run host integration tests
+        run: node test-host-integration.mjs
+
+      - name: Run status route regression tests
+        run: node test-status-route.mjs
+
+      # Guards the settings page's existence: drops out silently if any
+      # .volatile() mark is lost or models stops being whole-block volatile.
+      - name: Run config schema contract tests
+        run: node test-config-schema.mjs
+
+      - name: Check syntax (every shipped module)
+        run: |
+          for f in lib/index.js lib/client.js lib/status-rpc.js \
+                   lib/types/config.js lib/types/index.js \
+                   lib/strategies/token-bucket.js lib/strategies/sliding-window.js; do
+            node --check "$f"
+          done

@@ -1,0 +1,283 @@
+# dsh-llm-rate-limiter
+
+[![npm](https://img.shields.io/npm/v/@leaf233/dsh-llm-rate-limiter.svg)](https://www.npmjs.com/package/@leaf233/dsh-llm-rate-limiter)
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+![DSH 0.1.7+](https://img.shields.io/badge/DSH-0.1.7--rc.1%2B-brightgreen.svg)
+[![Cordis 4.x](https://img.shields.io/badge/Cordis-%3E%3D4.0.0-brightgreen.svg)](package.json)
+[![Tests](https://img.shields.io/badge/tests-375%20passing-brightgreen.svg)](test-config-schema.mjs)
+
+English | [中文](README.zh.md)
+
+Per-model LLM call rate limiter for [DeepSeek Harness](https://github.com/deepseek-ai/dsh) with queue/reject support and interactive GUI configuration.
+
+---
+
+## Features
+
+- **Per-model rate limiting** — independent concurrency, RPM, and burst limits for each `provider/model`
+- **Two algorithms** — Token Bucket (allows bursts) or Sliding Window (smooth, strict RPM)
+- **Queue mode** — throttled requests wait in queue and are released when a slot opens
+- **Reject mode** — throttled requests fail immediately (integrates with `dsh-llm-retry` for auto-backoff)
+- **Interactive GUI** — collapsible card in DSH Settings → Plugins → Configurable
+- **Live status panel** — real-time counters, per-model progress bars and an event log (v0.2.0)
+- **Hot-reload** — settings changes take effect immediately, no restart needed
+- **Every request checked** — intercepts `llm/stream` waterfall, covering every LLM call in every agent turn
+
+---
+
+## Status Panel (v0.2.0)
+
+Expanding the card shows a live panel at the top of its body:
+
+```
+📊 实时状态                          ● 实时   [清零]
+ 请求 42 · 通过 38 · 拒绝 2 · 超时 1 · 中止 1 · 平均等待 214ms
+ deepseek/deepseek-chat   [令牌桶]  ▓▓▓▓▓▓▓░░░ 7.5/10   并发 2/5   排队 1
+ openai/gpt-4o            [滑动窗口] ▓▓▓▓▓▓▓▓▓▓ 3/3 rpm  并发 1/5
+ 12:00:03  timeout   openai/gpt-4o              等待 1m
+ 12:00:01  rejected  openai/gpt-4o
+ 12:00:00  granted   deepseek/deepseek-chat     等待 4.2s
+```
+
+| Aspect | Behaviour |
+|--------|-----------|
+| Data channel | Channel `/llm-rate-limiter` — authenticated (401/403 fence), POST+JSON, auto-cleaned with the plugin fiber |
+| Carrier | Prefers the framework's `connection.rpc.handle()`; falls back to a self-registered prefix route that reuses `connection.requestRejection()` when the framework path is broken (see below) |
+| Cadence | 1 s polling while the card is expanded; backs off 2 s → 4 s → 8 s after failures |
+| Collapsed card | The panel unmounts, so **no polling runs at all** |
+| Endpoints | `snapshot` (live counters) and `reset` (zero the statistics) |
+| Without a channel | Shows "状态通道不可用" and leaves the rest of the card fully functional |
+| Counters | `requests` / `granted` / `rejected` / `timeouts` / `aborted` / `totalWaitMs`, plus the last 8 events (ring buffer of 64) |
+| Progress bars | Token bucket shows `tokens/burstSize`; sliding window shows `countInWindow/maxRpm`; both turn amber as the limit approaches |
+
+### Carrier fallback (DSH 0.1.5-rc.3 onward)
+
+DSH 0.1.5-rc.3 changed `@deepseek-ai/dsh-client-connection`'s own `inject` from
+`["webServer", "credentials"]` to `["credentials"]`, but its
+`HostConnectionService.register()` still dereferences `owner.webServer`.
+Cordis rebinds a cross-fiber service's `ctx` to the *reader's* fiber, so
+`connection.rpc.handle()` throws: **still present in 0.1.7-rc.1** — see below.
+
+```
+cannot get property "webServer" without inject
+```
+
+The plugin now detects that and mounts the same channel itself:
+
+| Path | When | How |
+|------|------|-----|
+| 1 (preferred) | `connection.rpc.handle()` works | The framework owns the route, request validation, and fiber-scoped withdrawal |
+| 2 (fallback) | Path 1 throws | The plugin registers a `kind: "prefix"` route on its own fiber (which *can* see `webServer`) and reuses `connection.requestRejection()` for the 403/401 fence |
+
+Both carriers speak the identical wire protocol, so **the browser half is
+unchanged** — the panel cannot tell which one is live. If
+`connection.requestRejection()` is unavailable, the plugin refuses to mount
+rather than publishing an unauthenticated route.
+
+
+---
+
+## Installation
+
+### Option 1: npm (recommended)
+
+```bash
+dsh plugin add <your-profile> @leaf233/dsh-llm-rate-limiter
+# or, inside the profile directory:
+pnpm add @leaf233/dsh-llm-rate-limiter
+```
+
+### Option 2: local path (development)
+
+```bash
+dsh plugin add <your-profile> ./path/to/dsh-llm-rate-limiter
+# or
+dsh plugin add ./path/to/dsh-llm-rate-limiter   # default profile
+```
+
+> The plugin must be added as a dependency in the profile's `package.json`.
+> The bundle entry (`cordis.patch.yml`) is auto-detected by `reconcilePlugins`.
+>
+> **0.3.0 requires DSH 0.1.7-rc.1 or newer.** Pin `@leaf233/dsh-llm-rate-limiter@0.2.x`
+> for DSH 0.1.5. See the [compatibility table](#compatibility).
+
+### Option 3: from GitHub
+
+```bash
+dsh plugin add <your-profile> github:Leafyezi233/dsh-llm-rate-limiter
+```
+
+> ⚠️ **Important**: Git-hosted plugins are blocked by pnpm's `allowBuilds` restriction on first install. If the install fails, check the error message for the exact key pnpm suggests, then add it to your profile's `pnpm-workspace.yaml`:
+>
+> ```yaml
+> pnpm:
+>   allowBuilds:
+>     - '@leaf233/dsh-llm-rate-limiter'
+> ```
+>
+> Then re-run the install command.
+
+---
+
+## Configuration
+
+### Via GUI
+
+1. Open DSH Web UI (`dsh web`)
+2. Go to **Settings → Plugins** and open the **Official** group
+3. Find the **LLM 调用限速** card (`data-plugin-item="llm-rate-limiter"`) and open it
+4. Configure defaults, per-model overrides, and throttle behavior — changes save
+   through the page's own form, so the live status panel is right there
+
+> The card lives in the **Official** group because DSH lists every `plugins.item`
+> registrant there; the plugin's order is `900`, so it follows the five official
+> settings pages.
+
+### Via file
+
+Changes persist into the profile's Cordis patch, in the entry's own `config`
+(0.1.7 reads configuration from the entry's exported `Config`; a legacy
+`settings.yaml` is imported by DSH once at first start and then renamed). The shape is:
+
+```yaml
+llm-rate-limiter:
+  enabled: true
+  strategy: token-bucket       # "token-bucket" | "sliding-window"
+  defaults:
+    maxConcurrent: 5
+    maxRpm: 60
+    burstSize: 10               # token-bucket only
+    refillRate: 1               # token-bucket only (tokens/sec)
+  models:
+    "deepseek/deepseek-chat":
+      maxConcurrent: 8
+      maxRpm: 120
+    "openai/gpt-4o":
+      maxConcurrent: 2
+      maxRpm: 10
+      burstSize: 3
+    "anthropic/claude-3-5-sonnet":
+      enabled: false            # skip rate limiting for this model
+  onThrottled: queue            # "queue" | "reject"
+  maxQueueWaitMs: 60000
+```
+
+---
+
+## Settings Reference
+
+| Field | Default | Description |
+|-------|---------|-------------|
+| `enabled` | `true` | Global on/off switch. When off, zero overhead bypass. |
+| `strategy` | `"token-bucket"` | `"token-bucket"` (allows bursts) or `"sliding-window"` (smooth, strict RPM) |
+| `defaults.maxConcurrent` | `5` | Max simultaneous requests per model |
+| `defaults.maxRpm` | `60` | Max requests per minute per model |
+| `defaults.burstSize` | `10` | Token bucket capacity — how many requests can burst at once |
+| `defaults.refillRate` | `1` | Tokens refilled per second (token-bucket). Auto-derived from `maxRpm / 60` if not set. |
+| `models.<key>.maxConcurrent` | — | Per-model concurrency override |
+| `models.<key>.maxRpm` | — | Per-model RPM override |
+| `models.<key>.burstSize` | — | Per-model burst capacity override |
+| `models.<key>.refillRate` | — | Per-model refill rate override |
+| `models.<key>.enabled` | — | Set `false` to skip rate limiting for this specific model |
+| `onThrottled` | `"queue"` | What happens when a request hits the limit: `"queue"` (wait) or `"reject"` (fail immediately) |
+| `maxQueueWaitMs` | `60000` | Max time (ms) a request waits in queue before being rejected |
+
+> **Note:** When a model overrides `maxRpm` without explicitly setting `refillRate`, the refill rate is automatically derived as `maxRpm / 60` (tokens per second). This ensures "set maxRpm=3" actually limits to 3 requests per minute.
+
+---
+
+## Algorithm Comparison
+
+| | Token Bucket | Sliding Window |
+|---|---|---|
+| **Burst** | Yes (controlled by `burstSize`) | No — strictly smooth |
+| **Recovery** | Tokens refill at `refillRate`/sec | Window slides continuously |
+| **Best for** | Tolerating request spikes | APIs with hard per-minute limits |
+| **GUI label** | 令牌桶 (Token Bucket) | 滑动窗口 (Sliding Window) |
+
+---
+
+## How It Works
+
+```
+Agent Turn
+  → LLM Call (e.g. deepseek/deepseek-chat)
+    → ctx.on("llm/stream") interceptor
+      → Resolve rate limiter for this provider/model
+      → Token bucket: has tokens + concurrency room?
+      → If YES: consume token, acquire slot, forward to API
+      → If NO (reject mode): return RATE_LIMIT error immediately
+      → If NO (queue mode): park in waiters[], wait for token refill
+    → Request completes → release slot → drain waiting requests
+  → dsh-llm-retry catches RATE_LIMIT → exponential backoff → retry
+```
+
+---
+
+## Development
+
+```bash
+# Clone
+git clone https://github.com/Leafyezi233/dsh-llm-rate-limiter.git
+cd dsh-llm-rate-limiter
+
+# Install deps
+pnpm install
+
+# Run the full suite (375 assertions across 6 files)
+pnpm test
+
+# Individual suites
+node test-strategies.mjs       # 19 — rate-limit algorithms
+node test-status-rpc.mjs       # 61 — channel handler + counters
+node test-client-bundle.mjs    # 106 — real client bundle on a miniature React runtime
+node test-host-integration.mjs # 80 — real apply(ctx, config) wiring + volatile refs
+node test-status-route.mjs     # 73 — self-registered route + the 0.1.5 regression
+node test-config-schema.mjs    # 36 — Config volatile contract the settings page needs
+
+# Live HTTP proof against a real DSH install (real socket, real webserver)
+pnpm run verify:live           # 19 — exits 2 (skipped) when DSH is absent
+
+# Run E2E rate-limit test
+node test-3rpm.mjs
+
+# Install into a DSH profile for testing
+dsh plugin add <your-profile> .
+```
+
+The plugin uses a live symlink when installed via `link:` — edits to `lib/` take effect on browser hard-refresh (`Ctrl+Shift+R`) without reinstalling.
+
+---
+
+## Compatibility
+
+| DSH Version | Plugin version | Status | Notes |
+|-------------|----------------|--------|-------|
+| 0.1.2-rc.1 | 0.2.x | ✅ Tested | Original target; `connection.rpc` carrier |
+| 0.1.5-rc.3 | 0.2.x | ✅ Tested | Requires the carrier fallback; verified over real HTTP |
+| **0.1.7-rc.1+** | **0.3.x** | ✅ **Tested** | **`settingsScope` → `configForms`; `settings.plugin.item` → `plugins.item`; Config-based settings** |
+| 0.2.x (DSH) | — | ⚠️ Untested | May need API adjustments |
+| Cordis 5+ | — | ⚠️ Untested | Major version change likely requires rewrite |
+
+### Breaking change in 0.3.0
+
+DSH 0.1.7 removed the two client services this plugin used for its settings UI:
+
+| 0.1.5 | 0.1.7 |
+|-------|-------|
+| `settingsScope` service | `configForms` service |
+| `settings.plugin.item` slot | `plugins.item` slot |
+| host `ctx.settings.register(ns, schema, { base })` | the entry's own exported `Config` schema |
+| host `scope.get()` / `scope.watch()` | `.volatile()` references, read with `.get()` |
+
+**0.3.0 only supports DSH 0.1.7-rc.1+. Use `0.2.x` for 0.1.5.**
+
+The four breakpoints this migration rests on are documented inline in
+`lib/index.js` and `lib/types/config.js`, and the reasoning is recorded in
+[CHANGELOG.md](CHANGELOG.md) under `[0.3.0]`.
+
+---
+
+## License
+
+[MIT](LICENSE)
